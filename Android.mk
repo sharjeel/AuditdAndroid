@@ -64,12 +64,12 @@ LOCAL_SHARED_LIBRARIES := libc libcutils
 
 include $(BUILD_EXECUTABLE)
 
-#spade-audit utility build
+# audit-reader utility build
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := spade-audit
+LOCAL_MODULE := audit-reader
 LOCAL_MODULE_TAGS := optional
-LOCAL_SRC_FILES:= src/spadeLinuxAudit.c
+LOCAL_SRC_FILES:= src/audit-reader.c
 LOCAL_CFLAGS :=  -fPIE -DPIE -g -D_GNU_SOURCE -fno-strict-aliasing 
 LOCAL_LDLIBS := -lm -lpthread -lc
 

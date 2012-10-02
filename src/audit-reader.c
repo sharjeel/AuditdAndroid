@@ -25,10 +25,21 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <sys/socket.h>
 #include <linux/socket.h>
 #include <sys/un.h>
+#include <assert.h>
 
 #define SERVER_PATH     "/dev/audit"
 #define BUFFER_LENGTH   10000
 #define FALSE           0
+
+#ifdef DEBUG
+#include <android/log.h>
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG , "spade-audit", __VA_ARGS__)
+#else
+#define LOGD(...)
+#define NDEBUG
+#endif
+
+
 
 // Defining SUN_LEN. Does not exist in Bionic LIBC
 #include <string.h>
@@ -36,9 +47,9 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 	+ strlen ((ptr)->sun_path))
 
 int main(int argc, char *argv[]) {
-    int sd = -1, rc, bytesReceived;
+    int sd = -1, rc, bytesReceived, start, end;
     char buffer[BUFFER_LENGTH];
-    struct sockaddr_un serveraddr;
+    struct sockaddr_un serveraddr;  
 
     /***********************************************************************/
     /* A do/while(FALSE) loop is used to make error cleanup easier.  The   */
@@ -46,6 +57,7 @@ int main(int argc, char *argv[]) {
     /* of the program.                                                     */
     /***********************************************************************/
     do {
+
         /***********************************************************************/
         /* The socket() function returns a socket descriptor, which represents */
         /* an endpoint.  The statement also identifies that the UNIX           */
@@ -77,34 +89,28 @@ int main(int argc, char *argv[]) {
         }
 
         /********************************************************************/
-        /* In this example we know that the server is going to respond with */
-        /* the same 250 bytes that we just sent.  Since we know that 250    */
-        /* bytes are going to be sent back to us, we can use the            */
-        /* SO_RCVLOWAT socket option and then issue a single recv() and     */
-        /* retrieve all of the data.                                        */
-        /*                                                                  */
-        /* The use of SO_RCVLOWAT is already illustrated in the server      */
-        /* side of this example, so we will do something different here.    */
-        /* The 250 bytes of the data may arrive in separate packets,        */
-        /* therefore we will issue recv() over and over again until all     */
-        /* 250 bytes have arrived.                                          */
+        /* Receive the data from the socket in a blocking call              */
         /********************************************************************/
+        memset(&buffer, 0, BUFFER_LENGTH);
+	start = 0;
+	end = 0;
         while (1) {
-            bytesReceived = 0;
-            memset(&buffer, 0, BUFFER_LENGTH);
-
-            rc = recv(sd, & buffer[bytesReceived], BUFFER_LENGTH - bytesReceived - 1, 0);
+	  char* leftover;
+            rc = recv(sd, & buffer[start], BUFFER_LENGTH - end - 1, 0);
 
             if (rc <= 0) {
+	        LOGD("*** Recv failed! ***");
                 //perror("recv() failed");
                 break;
             }
+            end += rc;
+	    buffer[rc] = '\0';
 
-            /*****************************************************************/
-            /* Increment the number of bytes that have been received so far  */
-            /*****************************************************************/
-            bytesReceived += rc;
-            printf("%s", buffer);
+	    assert( memmem(buffer, end, "\0", 1) == NULL);
+
+	    printf("%s", buffer);    
+	    start = end = 0;
+	    LOGD(buffer);
         }
     } while (FALSE);
 

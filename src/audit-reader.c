@@ -1,7 +1,7 @@
 /*
 --------------------------------------------------------------------------------
 SPADE - Support for Provenance Auditing in Distributed Environments.
-Copyright (C) 2011 SRI International
+Copyright (C) 2012 SRI International
 
 This program is free software: you can redistribute it and/or
 modify it under the terms of the GNU General Public License as
@@ -25,96 +25,91 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <sys/socket.h>
 #include <linux/socket.h>
 #include <sys/un.h>
-#include <assert.h>
+#include <errno.h>
 
 #define SERVER_PATH     "/dev/audit"
 #define BUFFER_LENGTH   10000
 #define FALSE           0
 
 #ifdef DEBUG
-#include <android/log.h>
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG , "spade-audit", __VA_ARGS__)
+#include <android.h>
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG , "dumpstream", __VA_ARGS__)
+// #define LOGD(...) printf(__VA_ARGS__)
 #else
 #define LOGD(...)
-#define NDEBUG
 #endif
 
-
-
-// Defining SUN_LEN. Does not exist in Bionic LIBC
-#include <string.h>
+#ifndef SUN_LEN
 #define SUN_LEN(ptr) ((size_t) (((struct sockaddr_un *) 0)->sun_path)	\
 	+ strlen ((ptr)->sun_path))
+#endif
 
-int main(int argc, char *argv[]) {
-    int sd = -1, rc, bytesReceived, start, end;
-    char buffer[BUFFER_LENGTH];
-    struct sockaddr_un serveraddr;  
+int sd = -1;
 
-    /***********************************************************************/
-    /* A do/while(FALSE) loop is used to make error cleanup easier.  The   */
-    /* close() of the socket descriptor is only done once at the very end  */
-    /* of the program.                                                     */
-    /***********************************************************************/
-    do {
+char buffer[BUFFER_LENGTH];
+struct sockaddr_un serveraddr;
 
-        /***********************************************************************/
-        /* The socket() function returns a socket descriptor, which represents */
-        /* an endpoint.  The statement also identifies that the UNIX           */
-        /* address family with the stream transport (SOCK_STREAM) will be      */
-        /* used for this socket.                                               */
-        /***********************************************************************/
-        sd = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (sd < 0) {
-            //perror("socket() failed");
-            break;
-        }
+void print_help(char* selfname)
+{
+  printf("Output the audit stream in file or stdout \n\n");
+  printf("Usage: %s [-f filename]\n", selfname);
+  printf("If no filename is provided, audit data is written in stdout \n");
+}
 
-        /********************************************************************/
-        /* If an argument was passed in, use this as the server, otherwise  */
-        /* use the #define that is located at the top of this program.      */
-        /********************************************************************/
-        memset(&serveraddr, 0, sizeof (serveraddr));
-        serveraddr.sun_family = AF_UNIX;
-        strcpy(serveraddr.sun_path, SERVER_PATH);
+int main(char c, char** v) 
+{
+  int rc, i;
+  FILE* fout = stdout;
 
-        /********************************************************************/
-        /* Use the connect() function to establish a connection to the      */
-        /* server.                                                          */
-        /********************************************************************/
-        rc = connect(sd, (struct sockaddr *) &serveraddr, SUN_LEN(&serveraddr));
-        if (rc < 0) {
-            //perror("connect() failed");
-            break;
-        }
+  for(i = 0; i < c ; i++) 
+    {
+      if ( strcmp("-h", v[i]) == 0 || strcmp("--help", v[i]) == 0 )
+	{
+	  print_help(v[0]);
+	  return 0;
+	}
+      if( strcmp("-f", v[i]) == 0 ) 
+	{
+	  fout = fopen(v[i+1], "a+");
+	  if (fout == NULL)
+	    {
+	      fprintf(stderr, "Could not create file: %s ; Error Code %d", v[i+1], errno);
+	      return 1;
+	    }
+	  break;
+	}
+    }
 
-        /********************************************************************/
-        /* Receive the data from the socket in a blocking call              */
-        /********************************************************************/
-        memset(&buffer, 0, BUFFER_LENGTH);
-	start = 0;
-	end = 0;
-        while (1) {
-	  char* leftover;
-            rc = recv(sd, & buffer[start], BUFFER_LENGTH - end - 1, 0);
+  // connect to socket
+  sd = socket(AF_UNIX, SOCK_STREAM, 0);
 
-            if (rc <= 0) {
-	        LOGD("*** Recv failed! ***");
-                //perror("recv() failed");
-                break;
-            }
-            end += rc;
-	    buffer[rc] = '\0';
+ if ( sd < 0 )
+    {
+      printf("Couldn't open socket");
+      return 1;
+    }
+  
+  memset(&serveraddr, 0, sizeof (serveraddr));
+  serveraddr.sun_family = AF_UNIX;
+  strcpy(serveraddr.sun_path, SERVER_PATH);
 
-	    assert( memmem(buffer, end, "\0", 1) == NULL);
+  rc = connect(sd, (struct sockaddr *) &serveraddr, SUN_LEN(&serveraddr)); 
+  if (rc < 0) 
+    {
+      printf("Couldn't connect to socket ");
+      return 1;
+    }
 
-	    printf("%s", buffer);    
-	    start = end = 0;
-	    LOGD(buffer);
-        }
-    } while (FALSE);
-
-    if (sd != -1) close(sd);
-    return 0;
-
+  // Start read and output on output stream
+  for(;;)
+    {
+      rc = recv(sd, buffer, BUFFER_LENGTH, 0);
+      if (rc < 0) 
+	{
+	  fprintf(stderr, "Connection error: %d", rc);
+	  return 1;
+	}
+      fwrite(buffer, 1, rc, fout);
+    }
+  return 0;
 }
